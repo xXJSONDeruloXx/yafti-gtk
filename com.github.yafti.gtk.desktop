@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Yafti Portal
+Comment=Run Bazzite setup scripts
+Exec=yafti_gtk.py
+Icon=com.github.yafti.gtk
+Terminal=false
+Type=Application
+Categories=System;Settings;
+Keywords=bazzite;setup;configuration;
