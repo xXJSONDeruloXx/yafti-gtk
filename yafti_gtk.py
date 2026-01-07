@@ -132,7 +132,7 @@ def setup_theme():
 
 class YaftiGTK(Gtk.Window):
     def __init__(self, config_file='yafti.yml'):
-        super().__init__(title="Yafti Portal")
+        super().__init__(title="Bazzite Portal")
         self.set_default_size(800, 600)
         self.set_border_width(10)
         
@@ -145,20 +145,6 @@ class YaftiGTK(Gtk.Window):
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add(vbox)
         
-        # Add title label
-        title_label = Gtk.Label()
-        title_label.set_markup(f"<span size='x-large' weight='bold'>{self.config.get('title', 'Yafti Portal')}</span>")
-        title_label.set_margin_bottom(10)
-        vbox.pack_start(title_label, False, False, 0)
-
-        # Home hint shown only on category list
-        self.home_hint = Gtk.Label(label="Choose a category")
-        self.home_hint.set_halign(Gtk.Align.CENTER)
-        self.home_hint.set_xalign(0.5)
-        self.home_hint.set_justify(Gtk.Justification.CENTER)
-        self.home_hint.set_margin_bottom(10)
-        vbox.pack_start(self.home_hint, False, False, 0)
-
         # Navigation bar (back button + current category label)
         nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.back_button = Gtk.Button(label="Back")
@@ -316,21 +302,40 @@ class YaftiGTK(Gtk.Window):
         for screen in self.screens or []:
             for action in screen.get('actions', []):
                 index.append({'screen_title': screen.get('title', ''), 'action': action})
+        # Add rebase helper as a top-level action for search
+        index.append({
+            'screen_title': 'Rebase',
+            'action': {
+                'title': 'Rebase Bazzite',
+                'description': 'Rebase your Bazzite install to another version or image',
+                'script': 'brh'
+            }
+        })
+        # Add update helper as a top-level action for search
+        index.append({
+            'screen_title': 'Update',
+            'action': {
+                'title': 'Update Bazzite and Apps',
+                'description': 'Updates Bazzite, Flatpaks, firmware, and more',
+                'script': 'ujust update'
+            }
+        })
         return index
 
     def create_categories_page(self):
         """Home page listing categories (screens)."""
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        outer.set_margin_top(20)
-        outer.set_margin_bottom(20)
-        outer.set_margin_start(20)
-        outer.set_margin_end(20)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_margin_top(8)
+        outer.set_margin_bottom(12)
+        outer.set_margin_start(14)
+        outer.set_margin_end(14)
 
         # Search field (kept outside scrolled content so it stays fixed)
         search_entry = Gtk.SearchEntry()
         search_entry.set_placeholder_text("Search Apps and Actions")
         search_entry.set_width_chars(32)
         search_entry.set_halign(Gtk.Align.CENTER)
+        search_entry.set_margin_bottom(6)
         search_entry.connect("search-changed", self.on_search_changed)
         search_entry.connect("changed", self.on_search_changed)
         self.search_entry = search_entry
@@ -351,16 +356,27 @@ class YaftiGTK(Gtk.Window):
         self.search_results_revealer.add(results_box)
         content.pack_start(self.search_results_revealer, False, False, 0)
 
-        # Center a vertical stack of category buttons
+        # Center a vertical stack of category buttons (+ rebase helper)
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         container.set_valign(Gtk.Align.CENTER)
         container.set_halign(Gtk.Align.CENTER)
         self.categories_container = container
 
+        # Update helper at the top
+        update_card = self.create_update_button()
+        update_card.set_margin_top(8)
+        container.pack_start(update_card, False, False, 0)
+
+        # Category cards
         for idx, screen in enumerate(self.screens):
             screen_name = f"screen-{idx}"
             card = self.create_category_button(screen, screen_name)
             container.pack_start(card, False, False, 0)
+
+        # Rebase helper at the bottom
+        rebase_card = self.create_rebase_button()
+        rebase_card.set_margin_top(8)
+        container.pack_start(rebase_card, False, False, 0)
 
         content.pack_start(container, True, True, 0)
         scrolled.add(content)
@@ -404,6 +420,68 @@ class YaftiGTK(Gtk.Window):
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         wrapper.pack_start(self.create_action_item(action), False, False, 0)
         return wrapper
+
+    def create_rebase_button(self):
+        """Direct action button to run BRH helper without a category page."""
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        title = Gtk.Label()
+        title.set_markup("<b>Rebase Bazzite</b>")
+        title.set_xalign(0)
+        box.pack_start(title, False, False, 0)
+
+        desc = Gtk.Label(label="Rebase your Bazzite install to another version or image")
+        desc.set_xalign(0)
+        desc.set_line_wrap(True)
+        desc.set_max_width_chars(60)
+        desc.get_style_context().add_class('dim-label')
+        box.pack_start(desc, False, False, 0)
+
+        button.add(box)
+        button.connect("clicked", self.on_action_clicked, "Rebase Bazzite", "brh")
+
+        frame = Gtk.Frame()
+        frame.set_shadow_type(Gtk.ShadowType.IN)
+        frame.add(button)
+        return frame
+
+    def create_update_button(self):
+        """Direct action button to run ujust update on the host."""
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        title = Gtk.Label()
+        title.set_markup("<b>Update Bazzite and Apps</b>")
+        title.set_xalign(0)
+        box.pack_start(title, False, False, 0)
+
+        desc = Gtk.Label(label="Updates Bazzite, Flatpaks, firmware, and more")
+        desc.set_xalign(0)
+        desc.set_line_wrap(True)
+        desc.set_max_width_chars(60)
+        desc.get_style_context().add_class('dim-label')
+        box.pack_start(desc, False, False, 0)
+
+        button.add(box)
+        button.connect("clicked", self.on_action_clicked, "Update Bazzite and Apps", "ujust update")
+
+        frame = Gtk.Frame()
+        frame.set_shadow_type(Gtk.ShadowType.IN)
+        frame.add(button)
+        return frame
 
     def _clear_search_results(self):
         for child in self.search_results_box.get_children():
@@ -454,7 +532,6 @@ class YaftiGTK(Gtk.Window):
         self.stack.set_visible_child_name("home")
         self.back_button.hide()
         self.nav_box.hide()
-        self.home_hint.set_visible(True)
         self.section_label.set_text("")
         if hasattr(self, 'search_entry'):
             self.search_entry.set_text("")
@@ -466,7 +543,6 @@ class YaftiGTK(Gtk.Window):
         self.stack.set_visible_child_name(screen_name)
         self.back_button.show()
         self.nav_box.show()
-        self.home_hint.set_visible(False)
         self.section_label.set_text(screen_title or "")
         if hasattr(self, 'search_entry'):
             self.search_entry.set_text("")
@@ -479,6 +555,13 @@ class YaftiGTK(Gtk.Window):
             if self.statusbar:
                 self.statusbar.push(self.status_context, "No script defined for this action")
             return
+
+        # Prefer host terminal for BRH and ujust commands
+        if script:
+            trimmed = script.strip()
+            if trimmed == 'brh' or trimmed.startswith('ujust '):
+                if self.launch_host_terminal(trimmed):
+                    return
         
         # Update statusbar
         if self.statusbar:
@@ -546,19 +629,37 @@ class YaftiGTK(Gtk.Window):
         
         # Handle dialog response
         dialog.connect("response", lambda d, r: d.destroy())
-    
-    def on_terminal_spawn_callback(self, terminal, task, user_data):
-        """Callback after terminal spawn"""
-        dialog, title = user_data
+
+    def launch_host_terminal(self, script):
+        """Attempt to run a command in host KDE Ptyxis. Returns True if launched."""
         try:
-            pid = terminal.spawn_finish(task)
-        except GLib.Error as error:
+            # Use flatpak-spawn to open host ptyxis and run the command
+            cmd = [
+                '/usr/bin/flatpak-spawn', '--host', 'ptyxis',
+                '--', 'bash', '--noprofile', '--norc', '-lc', script
+            ]
+            subprocess.Popen(cmd)
+            return True
+        except Exception as e:
+            print(f"Host terminal launch failed: {e}")
+            return False
+    
+    def on_terminal_spawn_callback(self, terminal, pid, error, user_data, *args):
+        """Callback after terminal spawn"""
+        dialog = None
+        title = "Action"
+        if isinstance(user_data, (tuple, list)) and len(user_data) == 2:
+            dialog, title = user_data
+        else:
+            dialog = user_data if isinstance(user_data, Gtk.Dialog) else None
+
+        if error:
             if self.statusbar:
                 self.statusbar.push(self.status_context, f"Error running {title}")
             print(f"Error: {error}")
             return
-        # Watch for child exit
-        terminal.connect("child-exited", self.on_terminal_child_exited, dialog, title)
+        if dialog:
+            terminal.connect("child-exited", self.on_terminal_child_exited, dialog, title)
     
     def on_terminal_child_exited(self, terminal, status, dialog, title):
         """Handle terminal process exit"""
