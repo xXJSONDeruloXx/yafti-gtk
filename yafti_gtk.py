@@ -100,6 +100,9 @@ def setup_theme():
     """Detect and apply system theme preference at startup."""
     prefers_dark = _detect_dark_preference()
     
+    # Ensure app-id matches desktop file so icon/theme resolve correctly on Wayland
+    GLib.set_prgname('com.github.yafti.gtk')
+
     # Set GTK_THEME env before GTK init
     if prefers_dark:
         os.environ['GTK_THEME'] = 'Adwaita:dark'
@@ -108,6 +111,18 @@ def setup_theme():
     
     # Initialize GTK
     Gtk.init([])
+
+    # Advertise app icon for headerbar/titlebar; fall back to on-disk SVG if lookup fails
+    try:
+        Gtk.Window.set_default_icon_name('com.github.yafti.gtk')
+    except Exception:
+        pass
+    icon_path = '/app/share/icons/hicolor/scalable/apps/com.github.yafti.gtk.svg'
+    if os.path.exists(icon_path):
+        try:
+            Gtk.Window.set_default_icon_from_file(icon_path)
+        except Exception:
+            pass
     
     # Set GTK theme properties
     settings = Gtk.Settings.get_default()
