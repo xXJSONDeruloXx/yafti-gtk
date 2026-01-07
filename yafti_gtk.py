@@ -29,9 +29,8 @@ def _read_ini_value(path, section, key):
 
 def _detect_dark_preference():
     """Detect if system prefers dark theme without initializing GTK."""
-    prefers_dark = True  # default to dark
-
-    # Check portal for color-scheme preference
+    
+    # Check portal for color-scheme preference (highest priority)
     try:
         bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         proxy = Gio.DBusProxy.new_sync(
@@ -52,48 +51,49 @@ def _detect_dark_preference():
         color_scheme = read_value.unpack() if hasattr(read_value, 'unpack') else read_value
         # Portal values: 0 = default, 1 = prefer-dark, 2 = prefer-light
         if color_scheme == 1:
-            prefers_dark = True
+            return True
         elif color_scheme == 2:
-            prefers_dark = False
+            return False
     except Exception:
         pass
 
-    # Fallback: GSettings
-    if not prefers_dark:
-        try:
-            interface = Gio.Settings.new('org.gnome.desktop.interface')
-            color_scheme = interface.get_string('color-scheme') if interface else ''
-            if color_scheme == 'prefer-dark':
-                prefers_dark = True
-            elif not prefers_dark:
-                theme_name = interface.get_string('gtk-theme') if interface else ''
-                prefers_dark = 'dark' in theme_name.lower()
-        except Exception:
-            pass
+    # Fallback: GSettings color-scheme
+    try:
+        interface = Gio.Settings.new('org.gnome.desktop.interface')
+        color_scheme = interface.get_string('color-scheme') if interface else ''
+        if color_scheme == 'prefer-dark':
+            return True
+        elif color_scheme == 'prefer-light':
+            return False
+        # Check gtk-theme if color-scheme not set
+        theme_name = interface.get_string('gtk-theme') if interface else ''
+        if 'dark' in theme_name.lower():
+            return True
+    except Exception:
+        pass
 
-    # Fallback: GTK_THEME env
-    if not prefers_dark:
-        gtk_theme_env = os.environ.get('GTK_THEME', '')
-        if 'dark' in gtk_theme_env.lower():
-            prefers_dark = True
+    # Fallback: GTK_THEME environment variable
+    gtk_theme_env = os.environ.get('GTK_THEME', '')
+    if 'dark' in gtk_theme_env.lower():
+        return True
 
-    # Fallback: gtk settings.ini
-    if not prefers_dark:
-        ini_val = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-application-prefer-dark-theme')
-        if ini_val and ini_val.strip() == '1':
-            prefers_dark = True
-        if not prefers_dark:
-            ini_theme = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-theme-name')
-            if ini_theme and 'dark' in ini_theme.lower():
-                prefers_dark = True
+    # Fallback: gtk settings.ini - prefer-dark-theme setting
+    ini_val = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-application-prefer-dark-theme')
+    if ini_val and ini_val.strip() == '1':
+        return True
+    
+    # Fallback: gtk settings.ini - theme name
+    ini_theme = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-theme-name')
+    if ini_theme and 'dark' in ini_theme.lower():
+        return True
 
-    # Fallback: KDE
-    if not prefers_dark:
-        kde_scheme = _read_ini_value(os.path.expanduser('~/.config/kdeglobals'), 'General', 'ColorScheme')
-        if kde_scheme and 'dark' in kde_scheme.lower():
-            prefers_dark = True
+    # Fallback: KDE color scheme
+    kde_scheme = _read_ini_value(os.path.expanduser('~/.config/kdeglobals'), 'General', 'ColorScheme')
+    if kde_scheme and 'dark' in kde_scheme.lower():
+        return True
 
-    return prefers_dark
+    # Default to dark if no preference detected
+    return True
 
 
 def setup_theme():
@@ -142,43 +142,56 @@ class YaftiGTK(Gtk.Window):
         self.actions_index = self._build_actions_index()
         
         # Create main container
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add(vbox)
         
-        # Navigation bar (back button + current category label)
-        nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.back_button = Gtk.Button(label="Back")
-        self.back_button.connect("clicked", self.show_home)
-        self.back_button.set_no_show_all(True)
-        self.back_button.hide()
-        nav_box.pack_start(self.back_button, False, False, 0)
-        self.section_label = Gtk.Label()
-        self.section_label.set_xalign(0)
-        nav_box.pack_start(self.section_label, True, True, 0)
-        nav_box.set_no_show_all(True)
-        nav_box.hide()
-        self.nav_box = nav_box
-        vbox.pack_start(nav_box, False, False, 0)
+        # Search bar at the top
+        search_entry = Gtk.SearchEntry()
+        search_entry.set_placeholder_text("Search Apps and Actions")
+        search_entry.set_margin_top(4)
+        search_entry.set_margin_bottom(4)
+        search_entry.set_margin_start(4)
+        search_entry.set_margin_end(4)
+        search_entry.connect("search-changed", self.on_search_changed)
+        search_entry.connect("changed", self.on_search_changed)
+        self.search_entry = search_entry
+        vbox.pack_start(search_entry, False, False, 0)
 
-        # Stack to swap between home (categories) and screens
-        self.stack = Gtk.Stack()
-        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        self.stack.set_transition_duration(200)
-
-        home_page = self.create_categories_page()
-        self.stack.add_named(home_page, "home")
-
-        self.screen_pages = []
-        for idx, screen in enumerate(self.screens):
+        # Notebook (tabs) directly below search
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_scrollable(True)
+        
+        # Add tabs for each screen from YAML
+        for screen in self.screens:
             page = self.create_screen_page(screen)
-            screen_name = f"screen-{idx}"
-            self.screen_pages.append((screen_name, screen))
-            self.stack.add_named(page, screen_name)
+            label = Gtk.Label(label=screen.get('title', 'Tab'))
+            self.notebook.append_page(page, label)
 
-        vbox.pack_start(self.stack, True, True, 0)
+        # Stack to switch between notebook and search results
+        self.content_stack = Gtk.Stack()
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.content_stack.set_transition_duration(150)
+        
+        # Add notebook to stack
+        self.content_stack.add_named(self.notebook, "tabs")
+        
+        # Search results page
+        search_scrolled = Gtk.ScrolledWindow()
+        search_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        results_box.set_margin_top(10)
+        results_box.set_margin_bottom(10)
+        results_box.set_margin_start(10)
+        results_box.set_margin_end(10)
+        self.search_results_box = results_box
+        search_scrolled.add(results_box)
+        self.content_stack.add_named(search_scrolled, "search")
+        
+        # Start with tabs visible
+        self.content_stack.set_visible_child_name("tabs")
+        
+        vbox.pack_start(self.content_stack, True, True, 0)
 
-        # Start at home view
-        self.show_home()
         # Status bar removed to avoid confusing "Running" messages during scripts
         self.statusbar = None
         self.status_context = None
@@ -227,17 +240,6 @@ class YaftiGTK(Gtk.Window):
         page_box.set_margin_bottom(10)
         page_box.set_margin_start(10)
         page_box.set_margin_end(10)
-        
-        # Add description
-        if screen.get('description'):
-            desc_label = Gtk.Label(label=screen['description'])
-            desc_label.set_line_wrap(True)
-            desc_label.set_xalign(0)
-            desc_label.set_margin_bottom(10)
-            page_box.pack_start(desc_label, False, False, 0)
-            
-            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-            page_box.pack_start(separator, False, False, 0)
         
         # Create action items
         for action in screen.get('actions', []):
@@ -302,118 +304,7 @@ class YaftiGTK(Gtk.Window):
         for screen in self.screens or []:
             for action in screen.get('actions', []):
                 index.append({'screen_title': screen.get('title', ''), 'action': action})
-        # Add rebase helper as a top-level action for search
-        index.append({
-            'screen_title': 'Rebase',
-            'action': {
-                'title': 'Rebase Bazzite',
-                'description': 'Rebase your Bazzite install to another version or image',
-                'script': 'brh'
-            }
-        })
-        # Add update helper as a top-level action for search
-        index.append({
-            'screen_title': 'Update',
-            'action': {
-                'title': 'Update Bazzite and Apps',
-                'description': 'Updates Bazzite, Flatpaks, firmware, and more',
-                'script': 'ujust update'
-            }
-        })
         return index
-
-    def create_categories_page(self):
-        """Home page listing categories (screens)."""
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        outer.set_margin_top(8)
-        outer.set_margin_bottom(12)
-        outer.set_margin_start(14)
-        outer.set_margin_end(14)
-
-        # Search field (kept outside scrolled content so it stays fixed)
-        search_entry = Gtk.SearchEntry()
-        search_entry.set_placeholder_text("Search Apps and Actions")
-        search_entry.set_width_chars(32)
-        search_entry.set_halign(Gtk.Align.CENTER)
-        search_entry.set_margin_bottom(6)
-        search_entry.connect("search-changed", self.on_search_changed)
-        search_entry.connect("changed", self.on_search_changed)
-        self.search_entry = search_entry
-        outer.pack_start(search_entry, False, False, 0)
-
-        # Scrolled area for results + categories
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-
-        # Search results area (hidden when empty)
-        self.search_results_revealer = Gtk.Revealer()
-        self.search_results_revealer.set_reveal_child(False)
-        self.search_results_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.search_results_box = results_box
-        self.search_results_revealer.add(results_box)
-        content.pack_start(self.search_results_revealer, False, False, 0)
-
-        # Center a vertical stack of category buttons (+ rebase helper)
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        container.set_valign(Gtk.Align.CENTER)
-        container.set_halign(Gtk.Align.CENTER)
-        self.categories_container = container
-
-        # Update helper at the top
-        update_card = self.create_update_button()
-        update_card.set_margin_top(8)
-        container.pack_start(update_card, False, False, 0)
-
-        # Category cards
-        for idx, screen in enumerate(self.screens):
-            screen_name = f"screen-{idx}"
-            card = self.create_category_button(screen, screen_name)
-            container.pack_start(card, False, False, 0)
-
-        # Rebase helper at the bottom
-        rebase_card = self.create_rebase_button()
-        rebase_card.set_margin_top(8)
-        container.pack_start(rebase_card, False, False, 0)
-
-        content.pack_start(container, True, True, 0)
-        scrolled.add(content)
-
-        outer.pack_start(scrolled, True, True, 0)
-        return outer
-
-    def create_category_button(self, screen, screen_name):
-        """Create a clickable card for a category (screen)."""
-        button = Gtk.Button()
-        button.set_relief(Gtk.ReliefStyle.NONE)
-
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        outer.set_margin_top(10)
-        outer.set_margin_bottom(10)
-        outer.set_margin_start(10)
-        outer.set_margin_end(10)
-
-        title = Gtk.Label()
-        title.set_markup(f"<b>{screen.get('title', 'Category')}</b>")
-        title.set_xalign(0)
-        outer.pack_start(title, False, False, 0)
-
-        if screen.get('description'):
-            desc = Gtk.Label(label=screen['description'])
-            desc.set_xalign(0)
-            desc.set_line_wrap(True)
-            desc.set_max_width_chars(60)
-            desc.get_style_context().add_class('dim-label')
-            outer.pack_start(desc, False, False, 0)
-
-        button.add(outer)
-        button.connect("clicked", self.show_screen, screen_name, screen.get('title', ''))
-        frame = Gtk.Frame()
-        frame.set_shadow_type(Gtk.ShadowType.IN)
-        frame.add(button)
-        return frame
 
     def create_action_result(self, action, screen_title):
         """Render a search result as a labeled action card."""
@@ -421,81 +312,16 @@ class YaftiGTK(Gtk.Window):
         wrapper.pack_start(self.create_action_item(action), False, False, 0)
         return wrapper
 
-    def create_rebase_button(self):
-        """Direct action button to run BRH helper without a category page."""
-        button = Gtk.Button()
-        button.set_relief(Gtk.ReliefStyle.NONE)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
-
-        title = Gtk.Label()
-        title.set_markup("<b>Rebase Bazzite</b>")
-        title.set_xalign(0)
-        box.pack_start(title, False, False, 0)
-
-        desc = Gtk.Label(label="Rebase your Bazzite install to another version or image")
-        desc.set_xalign(0)
-        desc.set_line_wrap(True)
-        desc.set_max_width_chars(60)
-        desc.get_style_context().add_class('dim-label')
-        box.pack_start(desc, False, False, 0)
-
-        button.add(box)
-        button.connect("clicked", self.on_action_clicked, "Rebase Bazzite", "brh")
-
-        frame = Gtk.Frame()
-        frame.set_shadow_type(Gtk.ShadowType.IN)
-        frame.add(button)
-        return frame
-
-    def create_update_button(self):
-        """Direct action button to run ujust update on the host."""
-        button = Gtk.Button()
-        button.set_relief(Gtk.ReliefStyle.NONE)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
-
-        title = Gtk.Label()
-        title.set_markup("<b>Update Bazzite and Apps</b>")
-        title.set_xalign(0)
-        box.pack_start(title, False, False, 0)
-
-        desc = Gtk.Label(label="Updates Bazzite, Flatpaks, firmware, and more")
-        desc.set_xalign(0)
-        desc.set_line_wrap(True)
-        desc.set_max_width_chars(60)
-        desc.get_style_context().add_class('dim-label')
-        box.pack_start(desc, False, False, 0)
-
-        button.add(box)
-        button.connect("clicked", self.on_action_clicked, "Update Bazzite and Apps", "ujust update")
-
-        frame = Gtk.Frame()
-        frame.set_shadow_type(Gtk.ShadowType.IN)
-        frame.add(button)
-        return frame
-
     def _clear_search_results(self):
         for child in self.search_results_box.get_children():
             self.search_results_box.remove(child)
-        self.search_results_revealer.set_reveal_child(False)
-        if hasattr(self, 'categories_container'):
-            self.categories_container.show()
+        if hasattr(self, 'content_stack'):
+            self.content_stack.set_visible_child_name("tabs")
 
     def on_search_changed(self, entry):
         query = entry.get_text().strip()
         if not query:
             self._clear_search_results()
-            if hasattr(self, 'categories_container'):
-                self.categories_container.show()
             return
 
         lowered = query.lower()
@@ -507,7 +333,10 @@ class YaftiGTK(Gtk.Window):
             if lowered in title.lower() or lowered in desc.lower():
                 matches.append(item)
 
-        self._clear_search_results()
+        # Clear old results
+        for child in self.search_results_box.get_children():
+            self.search_results_box.remove(child)
+        
         header = Gtk.Label()
         header.set_markup("<b>Search results</b>")
         header.set_xalign(0)
@@ -523,31 +352,8 @@ class YaftiGTK(Gtk.Window):
             self.search_results_box.pack_start(empty, False, False, 0)
 
         self.search_results_box.show_all()
-        self.search_results_revealer.set_reveal_child(True)
-        if hasattr(self, 'categories_container'):
-            self.categories_container.hide()
-
-    def show_home(self, *args):
-        """Navigate back to category list."""
-        self.stack.set_visible_child_name("home")
-        self.back_button.hide()
-        self.nav_box.hide()
-        self.section_label.set_text("")
-        if hasattr(self, 'search_entry'):
-            self.search_entry.set_text("")
-        if hasattr(self, '_clear_search_results'):
-            self._clear_search_results()
-
-    def show_screen(self, button, screen_name, screen_title):
-        """Show a specific screen/page of actions."""
-        self.stack.set_visible_child_name(screen_name)
-        self.back_button.show()
-        self.nav_box.show()
-        self.section_label.set_text(screen_title or "")
-        if hasattr(self, 'search_entry'):
-            self.search_entry.set_text("")
-        if hasattr(self, '_clear_search_results'):
-            self._clear_search_results()
+        if hasattr(self, 'content_stack'):
+            self.content_stack.set_visible_child_name("search")
     
     def on_action_clicked(self, button, title, script):
         """Handle action button click - run script in terminal window"""
@@ -556,12 +362,9 @@ class YaftiGTK(Gtk.Window):
                 self.statusbar.push(self.status_context, "No script defined for this action")
             return
 
-        # Prefer host terminal for BRH and ujust commands
-        if script:
-            trimmed = script.strip()
-            if trimmed == 'brh' or trimmed.startswith('ujust '):
-                if self.launch_host_terminal(trimmed):
-                    return
+        # Try host terminal first; fall back to embedded VTE if it fails
+        if self.launch_host_terminal(script.strip()):
+            return
         
         # Update statusbar
         if self.statusbar:
@@ -631,18 +434,45 @@ class YaftiGTK(Gtk.Window):
         dialog.connect("response", lambda d, r: d.destroy())
 
     def launch_host_terminal(self, script):
-        """Attempt to run a command in host KDE Ptyxis. Returns True if launched."""
-        try:
-            # Use flatpak-spawn to open host ptyxis and run the command
-            cmd = [
-                '/usr/bin/flatpak-spawn', '--host', 'ptyxis',
-                '--', 'bash', '--noprofile', '--norc', '-lc', script
-            ]
-            subprocess.Popen(cmd)
-            return True
-        except Exception as e:
-            print(f"Host terminal launch failed: {e}")
-            return False
+        """Attempt to run a command in a host terminal. Returns True if launched."""
+        candidate_terminals = [
+            "ptyxis",
+            "konsole",
+            "gnome-terminal",
+            "xterm",
+        ]
+        
+        for terminal in candidate_terminals:
+            try:
+                # First check if terminal exists on host
+                check = subprocess.run(
+                    ["/usr/bin/flatpak-spawn", "--host", "which", terminal],
+                    capture_output=True,
+                    timeout=2
+                )
+                if check.returncode != 0:
+                    continue  # Terminal not found, try next
+                    
+                # Terminal exists, launch it
+                cmd = [
+                    "/usr/bin/flatpak-spawn",
+                    "--host",
+                    terminal,
+                    "--",
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-lc",
+                    script,
+                ]
+                subprocess.Popen(cmd)
+                return True
+            except Exception as e:
+                print(f"Host terminal '{terminal}' launch failed: {e}")
+                continue
+        
+        print("Host terminal launch failed: no suitable terminal found.")
+        return False
     
     def on_terminal_spawn_callback(self, terminal, pid, error, user_data, *args):
         """Callback after terminal spawn"""
@@ -671,11 +501,26 @@ class YaftiGTK(Gtk.Window):
 
 
 def main():
+    import argparse
+    
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        prog='com.github.yafti.gtk',
+        description='Bazzite Portal - GTK interface for yafti',
+        epilog='Example: flatpak run com.github.yafti.gtk /run/host/usr/share/yafti/yafti.yml'
+    )
+    parser.add_argument(
+        'config',
+        metavar='CONFIG_FILE',
+        help='Path to yafti.yml configuration file'
+    )
+    args = parser.parse_args()
+    
     # Apply theme before creating window
     setup_theme()
 
-    # Use host-provided Bazzite portal config
-    config_file = '/run/host/usr/share/yafti/yafti.yml'
+    # Use provided config file
+    config_file = args.config
     if not os.path.exists(config_file):
         print(f"Error: yafti config not found at {config_file}")
         sys.exit(1)
