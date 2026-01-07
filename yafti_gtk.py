@@ -138,6 +138,7 @@ class YaftiGTK(Gtk.Window):
         
         # Load YAML configuration
         self.config = self.load_config(config_file)
+        self.screens = self.config.get('screens', [])
         
         # Create main container
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -148,16 +149,49 @@ class YaftiGTK(Gtk.Window):
         title_label.set_markup(f"<span size='x-large' weight='bold'>{self.config.get('title', 'Yafti Portal')}</span>")
         title_label.set_margin_bottom(10)
         vbox.pack_start(title_label, False, False, 0)
-        
-        # Create notebook (tabs) for screens
-        notebook = Gtk.Notebook()
-        vbox.pack_start(notebook, True, True, 0)
-        
-        # Add each screen as a tab
-        for screen in self.config.get('screens', []):
+
+        # Home hint shown only on category list
+        self.home_hint = Gtk.Label(label="Choose a category")
+        self.home_hint.set_halign(Gtk.Align.CENTER)
+        self.home_hint.set_xalign(0.5)
+        self.home_hint.set_justify(Gtk.Justification.CENTER)
+        self.home_hint.set_margin_bottom(10)
+        vbox.pack_start(self.home_hint, False, False, 0)
+
+        # Navigation bar (back button + current category label)
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.back_button = Gtk.Button(label="Back")
+        self.back_button.connect("clicked", self.show_home)
+        self.back_button.set_no_show_all(True)
+        self.back_button.hide()
+        nav_box.pack_start(self.back_button, False, False, 0)
+        self.section_label = Gtk.Label()
+        self.section_label.set_xalign(0)
+        nav_box.pack_start(self.section_label, True, True, 0)
+        nav_box.set_no_show_all(True)
+        nav_box.hide()
+        self.nav_box = nav_box
+        vbox.pack_start(nav_box, False, False, 0)
+
+        # Stack to swap between home (categories) and screens
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack.set_transition_duration(200)
+
+        home_page = self.create_categories_page()
+        self.stack.add_named(home_page, "home")
+
+        self.screen_pages = []
+        for idx, screen in enumerate(self.screens):
             page = self.create_screen_page(screen)
-            label = Gtk.Label(label=screen.get('title', 'Screen'))
-            notebook.append_page(page, label)
+            screen_name = f"screen-{idx}"
+            self.screen_pages.append((screen_name, screen))
+            self.stack.add_named(page, screen_name)
+
+        vbox.pack_start(self.stack, True, True, 0)
+
+        # Start at home view
+        self.show_home()
         
         # Add status bar at bottom
         self.statusbar = Gtk.Statusbar()
@@ -276,6 +310,75 @@ class YaftiGTK(Gtk.Window):
         frame.add(button)
         
         return frame
+
+    def create_categories_page(self):
+        """Home page listing categories (screens)."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+
+        # Center a vertical stack of category buttons
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_valign(Gtk.Align.CENTER)
+        container.set_halign(Gtk.Align.CENTER)
+        container.set_margin_top(20)
+        container.set_margin_bottom(20)
+        container.set_margin_start(20)
+        container.set_margin_end(20)
+
+        for idx, screen in enumerate(self.screens):
+            screen_name = f"screen-{idx}"
+            card = self.create_category_button(screen, screen_name)
+            container.pack_start(card, False, False, 0)
+
+        scrolled.add(container)
+        return scrolled
+
+    def create_category_button(self, screen, screen_name):
+        """Create a clickable card for a category (screen)."""
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        outer.set_margin_top(10)
+        outer.set_margin_bottom(10)
+        outer.set_margin_start(10)
+        outer.set_margin_end(10)
+
+        title = Gtk.Label()
+        title.set_markup(f"<b>{screen.get('title', 'Category')}</b>")
+        title.set_xalign(0)
+        outer.pack_start(title, False, False, 0)
+
+        if screen.get('description'):
+            desc = Gtk.Label(label=screen['description'])
+            desc.set_xalign(0)
+            desc.set_line_wrap(True)
+            desc.set_max_width_chars(60)
+            desc.get_style_context().add_class('dim-label')
+            outer.pack_start(desc, False, False, 0)
+
+        button.add(outer)
+        button.connect("clicked", self.show_screen, screen_name, screen.get('title', ''))
+        frame = Gtk.Frame()
+        frame.set_shadow_type(Gtk.ShadowType.IN)
+        frame.add(button)
+        return frame
+
+    def show_home(self, *args):
+        """Navigate back to category list."""
+        self.stack.set_visible_child_name("home")
+        self.back_button.hide()
+        self.nav_box.hide()
+        self.home_hint.set_visible(True)
+        self.section_label.set_text("")
+
+    def show_screen(self, button, screen_name, screen_title):
+        """Show a specific screen/page of actions."""
+        self.stack.set_visible_child_name(screen_name)
+        self.back_button.show()
+        self.nav_box.show()
+        self.home_hint.set_visible(False)
+        self.section_label.set_text(screen_title or "")
     
     def on_action_clicked(self, button, title, script):
         """Handle action button click - run script in terminal window"""
