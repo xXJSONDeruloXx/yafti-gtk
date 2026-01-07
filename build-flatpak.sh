@@ -34,16 +34,34 @@ flatpak install -y --user flathub org.gnome.Platform//48 org.gnome.Sdk//48 2>/de
 
 # Build the flatpak
 echo "Building flatpak package..."
-flatpak-builder --user --install --force-clean build-dir com.github.yafti.gtk.yml
+# Disable rofiles-fuse for environments without /dev/fuse
+flatpak-builder --disable-rofiles-fuse --user --install --force-clean build-dir com.github.yafti.gtk.yml
 
 # Export the flatpak bundle
 echo "Exporting flatpak bundle..."
 mkdir -p output
-flatpak build-bundle ~/.local/share/flatpak/repo output/yafti-gtk.flatpak com.github.yafti.gtk
+flatpak build-bundle ~/.local/share/flatpak/repo output/yafti-gtk.flatpak com.github.yafti.gtk || true
+
+# Ensure the bundle is consistently available under output/yafti-gtk.flatpak
+# Some environments (or fallback CI steps) may write the bundle to the repository
+# root as `yafti-gtk.flatpak`. Copy it to `output/` if needed.
+if [ ! -f output/yafti-gtk.flatpak ]; then
+    if [ -f yafti-gtk.flatpak ]; then
+        cp yafti-gtk.flatpak output/yafti-gtk.flatpak
+    else
+        # try to find any recently created flatpak bundle and move it
+        found=$(find . -maxdepth 2 -type f -name "yafti-gtk*.flatpak" -print -quit || true)
+        if [ -n "$found" ]; then
+            cp "$found" output/yafti-gtk.flatpak
+        else
+            echo "Warning: flatpak bundle not found after build"
+        fi
+    fi
+fi
 
 echo ""
 echo "✓ Build complete!"
-echo "✓ Flatpak bundle exported: yafti-gtk.flatpak"
+echo "✓ Flatpak bundle exported: output/yafti-gtk.flatpak"
 echo ""
 echo "To test the app:"
 echo "  flatpak run com.github.yafti.gtk"
