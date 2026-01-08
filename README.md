@@ -1,6 +1,9 @@
 # Bazzite Portal
 
-A GTK3 interface for the Bazzite Portal, providing quick access to system utilities, updates, and rebasing tools.
+![Bazzite Portal Screenshot](assets/screenshot.png)
+
+
+A GTK3 interface for the Bazzite Portal, providing quick access to various useful scripts, fixes, and QOL tweaks for the terminal averse.
 
 The default configuration file is located at:
 ```
