@@ -17,5 +17,5 @@ flatpak run org.flatpak.Builder --disable-rofiles-fuse --user --force-clean buil
 echo "Exporting bundle..."
 flatpak build-bundle repo yafti-gtk.flatpak com.github.yafti.gtk
 
-echo "\n✓ Build complete — yafti-gtk.flatpak created in repo root."
+printf "\n✓ Build complete — yafti-gtk.flatpak created in repo root.\n"
 echo "To install locally:  flatpak install --user -y yafti-gtk.flatpak"

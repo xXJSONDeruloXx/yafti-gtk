@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build Flatpak (flatpak-builder action)
         id: flatpak_build
@@ -28,7 +30,7 @@ jobs:
           verbose: true
 
       - name: Upload bundle artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: yafti-gtk-flatpak
@@ -37,21 +39,24 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Check manifest changed and extract version
         id: version_check
         run: |
           set -euo pipefail
           MANIFEST=com.github.yafti.gtk.yml
-          BEFORE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BEFORE="${{ github.event.pull_request.base.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+          fi
 
-          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -77,20 +82,33 @@ jobs:
           fi
 
           echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Download bundle artifact
-        if: steps.version_check.outputs.new_version != ''
+        if: needs.build.result == 'success' && steps.version_check.outputs.new_version != ''
         uses: actions/download-artifact@v4
         with:
           name: yafti-gtk-flatpak
           path: .
 
       - name: Create release and upload asset (gh)
-        if: steps.version_check.outputs.new_version != ''
+        if: needs.build.result == 'success' && steps.version_check.outputs.new_version != ''
         run: |
           set -euo pipefail
           VERSION="${{ steps.version_check.outputs.new_version }}"
-          echo "Creating release v${VERSION} and uploading yafti-gtk.flatpak"
-          gh release create "v${VERSION}" yafti-gtk.flatpak --title "v${VERSION}" --notes "Release ${VERSION}" --target "${{ github.sha }}"
+          echo "Preparing release v${VERSION} and uploading yafti-gtk.flatpak"
+
+          if [ ! -f yafti-gtk.flatpak ]; then
+            echo "Artifact yafti-gtk.flatpak not found; skipping release" >&2
+            exit 1
+          fi
+
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists — uploading/updating asset"
+            gh release upload "v${VERSION}" yafti-gtk.flatpak --clobber || true
+          else
+            echo "Creating release v${VERSION} and uploading yafti-gtk.flatpak"
+            gh release create "v${VERSION}" yafti-gtk.flatpak --title "v${VERSION}" --generate-notes --target "${{ github.sha }}"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
