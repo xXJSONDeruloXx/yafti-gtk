@@ -36,4 +36,4 @@ jobs:
         with:
           name: yafti-gtk-flatpak
           path: yafti-gtk.flatpak
-          if-no-files-found: warn
+          if-no-files-found: error
