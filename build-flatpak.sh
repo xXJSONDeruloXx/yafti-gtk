@@ -28,12 +28,11 @@ flatpak run org.flatpak.Builder --disable-rofiles-fuse --user --force-clean buil
 
 # Export the flatpak bundle
 echo "Exporting flatpak bundle..."
-mkdir -p output
-flatpak build-bundle repo output/yafti-gtk.flatpak com.github.yafti.gtk
+flatpak build-bundle repo yafti-gtk.flatpak com.github.yafti.gtk
 
 echo ""
 echo "✓ Build complete!"
-echo "✓ Flatpak bundle exported: output/yafti-gtk.flatpak"
+echo "✓ Flatpak bundle exported: yafti-gtk.flatpak"
 echo ""
 echo "To test the app:"
 echo "  flatpak run com.github.yafti.gtk"
