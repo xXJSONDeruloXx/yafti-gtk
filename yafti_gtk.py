@@ -11,123 +11,30 @@ import sys
 
 gi.require_version('Gtk', '3.0')
 gi.require_version('Vte', '2.91')
-from gi.repository import Gtk, Vte, GLib, Gio
-import configparser
-
-
-def _read_ini_value(path, section, key):
-    parser = configparser.ConfigParser()
-    parser.optionxform = str
-    try:
-        if os.path.exists(path):
-            parser.read(path)
-            return parser.get(section, key, fallback=None)
-    except Exception:
-        pass
-    return None
-
-
-def _detect_dark_preference():
-    """Detect if system prefers dark theme without initializing GTK."""
-    
-    # Check portal for color-scheme preference (highest priority)
-    try:
-        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        proxy = Gio.DBusProxy.new_sync(
-            bus, Gio.DBusProxyFlags.NONE, None,
-            'org.freedesktop.portal.Desktop',
-            '/org/freedesktop/portal/desktop',
-            'org.freedesktop.portal.Settings',
-            None,
-        )
-        variant = proxy.call_sync(
-            'Read',
-            GLib.Variant('(ss)', ('org.freedesktop.appearance', 'color-scheme')),
-            Gio.DBusCallFlags.NONE,
-            -1,
-            None,
-        )
-        read_value = variant.get_child_value(0)
-        color_scheme = read_value.unpack() if hasattr(read_value, 'unpack') else read_value
-        # Portal values: 0 = default, 1 = prefer-dark, 2 = prefer-light
-        if color_scheme == 1:
-            return True
-        elif color_scheme == 2:
-            return False
-    except Exception:
-        pass
-
-    # Fallback: GSettings color-scheme
-    try:
-        interface = Gio.Settings.new('org.gnome.desktop.interface')
-        color_scheme = interface.get_string('color-scheme') if interface else ''
-        if color_scheme == 'prefer-dark':
-            return True
-        elif color_scheme == 'prefer-light':
-            return False
-        # Check gtk-theme if color-scheme not set
-        theme_name = interface.get_string('gtk-theme') if interface else ''
-        if 'dark' in theme_name.lower():
-            return True
-    except Exception:
-        pass
-
-    # Fallback: GTK_THEME environment variable
-    gtk_theme_env = os.environ.get('GTK_THEME', '')
-    if 'dark' in gtk_theme_env.lower():
-        return True
-
-    # Fallback: gtk settings.ini - prefer-dark-theme setting
-    ini_val = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-application-prefer-dark-theme')
-    if ini_val and ini_val.strip() == '1':
-        return True
-    
-    # Fallback: gtk settings.ini - theme name
-    ini_theme = _read_ini_value(os.path.expanduser('~/.config/gtk-3.0/settings.ini'), 'Settings', 'gtk-theme-name')
-    if ini_theme and 'dark' in ini_theme.lower():
-        return True
-
-    # Fallback: KDE color scheme
-    kde_scheme = _read_ini_value(os.path.expanduser('~/.config/kdeglobals'), 'General', 'ColorScheme')
-    if kde_scheme and 'dark' in kde_scheme.lower():
-        return True
-
-    # Default to dark if no preference detected
-    return True
+from gi.repository import Gtk, Vte, GLib
 
 
 def setup_theme():
-    """Detect and apply system theme preference at startup."""
-    prefers_dark = _detect_dark_preference()
-    
+    """Apply dark theme at startup."""
     # Ensure app-id matches desktop file so icon/theme resolve correctly on Wayland
     GLib.set_prgname('com.github.yafti.gtk')
 
-    # Set GTK_THEME env before GTK init
-    if prefers_dark:
-        os.environ['GTK_THEME'] = 'Adwaita:dark'
-    else:
-        os.environ.pop('GTK_THEME', None)
+    # Set dark theme
+    os.environ['GTK_THEME'] = 'Adwaita:dark'
     
     # Initialize GTK
     Gtk.init([])
 
-    # Advertise app icon for headerbar/titlebar; fall back to on-disk SVG if lookup fails
+    # Set app icon - icon theme should resolve this properly in flatpak
     try:
         Gtk.Window.set_default_icon_name('com.github.yafti.gtk')
-    except Exception:
-        pass
-    icon_path = '/app/share/icons/hicolor/scalable/apps/com.github.yafti.gtk.svg'
-    if os.path.exists(icon_path):
-        try:
-            Gtk.Window.set_default_icon_from_file(icon_path)
-        except Exception:
-            pass
+    except Exception as e:
+        print(f"Warning: Could not set app icon: {e}")
     
-    # Set GTK theme properties
+    # Enable dark theme preference
     settings = Gtk.Settings.get_default()
     if settings:
-        settings.set_property('gtk-application-prefer-dark-theme', prefers_dark)
+        settings.set_property('gtk-application-prefer-dark-theme', True)
 
 
 class YaftiGTK(Gtk.Window):
@@ -191,10 +98,6 @@ class YaftiGTK(Gtk.Window):
         self.content_stack.set_visible_child_name("tabs")
         
         vbox.pack_start(self.content_stack, True, True, 0)
-
-        # Status bar removed to avoid confusing "Running" messages during scripts
-        self.statusbar = None
-        self.status_context = None
         
     def load_config(self, config_file):
         """Load and parse the YAML configuration file"""
@@ -358,17 +261,11 @@ class YaftiGTK(Gtk.Window):
     def on_action_clicked(self, button, title, script):
         """Handle action button click - run script in terminal window"""
         if not script:
-            if self.statusbar:
-                self.statusbar.push(self.status_context, "No script defined for this action")
             return
 
         # Try host terminal first; fall back to embedded VTE if it fails
         if self.launch_host_terminal(script.strip()):
             return
-        
-        # Update statusbar
-        if self.statusbar:
-            self.statusbar.push(self.status_context, f"Running: {title}")
         
         # Create dialog with terminal
         dialog = Gtk.Dialog(
@@ -396,13 +293,10 @@ class YaftiGTK(Gtk.Window):
         # Show dialog
         dialog.show_all()
         
-        # Spawn the script in the terminal. When running inside a Flatpak sandbox
-        # prefer `flatpak-spawn --host` so `ujust` and other host tools run on the host.
+        # Spawn the script in the terminal using flatpak-spawn to execute on the host
+        # so ujust and other host tools are available
         try:
-            if os.environ.get('FLATPAK_ID'):
-                cmd = ['/usr/bin/flatpak-spawn', '--host', '/bin/bash', '-c', script]
-            else:
-                cmd = ['/bin/bash', '-c', script]
+            cmd = ['/usr/bin/flatpak-spawn', '--host', '/bin/bash', '-c', script]
 
             terminal.spawn_async(
                 Vte.PtyFlags.DEFAULT,
@@ -484,20 +378,15 @@ class YaftiGTK(Gtk.Window):
             dialog = user_data if isinstance(user_data, Gtk.Dialog) else None
 
         if error:
-            if self.statusbar:
-                self.statusbar.push(self.status_context, f"Error running {title}")
-            print(f"Error: {error}")
+            print(f"Error spawning terminal for {title}: {error}")
             return
         if dialog:
             terminal.connect("child-exited", self.on_terminal_child_exited, dialog, title)
     
     def on_terminal_child_exited(self, terminal, status, dialog, title):
         """Handle terminal process exit"""
-        if self.statusbar:
-            if status == 0:
-                self.statusbar.push(self.status_context, f"Completed: {title}")
-            else:
-                self.statusbar.push(self.status_context, f"Failed: {title} (exit code: {status})")
+        if status != 0:
+            print(f"Script '{title}' exited with code {status}")
 
 
 def main():

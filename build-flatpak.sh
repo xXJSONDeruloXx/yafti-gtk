@@ -3,23 +3,13 @@ set -e
 
 echo "Building Yafti GTK Flatpak..."
 
-# Install flatpak-builder if not present
+# Check for flatpak-builder
 if ! command -v flatpak-builder &> /dev/null; then
-    echo "Installing flatpak-builder..."
-    
-    # Detect package manager and install
-    if command -v dnf &> /dev/null; then
-        sudo dnf install -y flatpak-builder
-    elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm flatpak-builder
-    elif command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y flatpak-builder
-    elif command -v zypper &> /dev/null; then
-        sudo zypper install -y flatpak-builder
-    else
-        echo "Error: No supported package manager found (dnf, pacman, apt-get, zypper)"
-        exit 1
-    fi
+    echo "Error: flatpak-builder not found. Please install it first."
+    echo "  Fedora: sudo dnf install flatpak-builder"
+    echo "  Arch: sudo pacman -S flatpak-builder"
+    echo "  Debian/Ubuntu: sudo apt-get install flatpak-builder"
+    exit 1
 fi
 
 # Add Flathub repo if not present
@@ -41,23 +31,6 @@ flatpak-builder --disable-rofiles-fuse --user --force-clean build-dir com.github
 echo "Exporting flatpak bundle..."
 mkdir -p output
 flatpak build-bundle repo output/yafti-gtk.flatpak com.github.yafti.gtk
-
-# Ensure the bundle is consistently available under output/yafti-gtk.flatpak
-# Some environments (or fallback CI steps) may write the bundle to the repository
-# root as `yafti-gtk.flatpak`. Copy it to `output/` if needed.
-if [ ! -f output/yafti-gtk.flatpak ]; then
-    if [ -f yafti-gtk.flatpak ]; then
-        cp yafti-gtk.flatpak output/yafti-gtk.flatpak
-    else
-        # try to find any recently created flatpak bundle and move it
-        found=$(find . -maxdepth 2 -type f -name "yafti-gtk*.flatpak" -print -quit || true)
-        if [ -n "$found" ]; then
-            cp "$found" output/yafti-gtk.flatpak
-        else
-            echo "Warning: flatpak bundle not found after build"
-        fi
-    fi
-fi
 
 echo ""
 echo "✓ Build complete!"
