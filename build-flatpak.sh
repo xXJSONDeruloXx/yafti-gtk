@@ -20,7 +20,10 @@ fi
 
 # Install runtime and SDK
 echo "Installing GNOME runtime and SDK..."
-flatpak install -y --user flathub org.gnome.Platform//48 org.gnome.Sdk//48 2>/dev/null || true
+if ! flatpak install -y --user flathub org.gnome.Platform//48 org.gnome.Sdk//48; then
+    echo "Warning: Failed to install runtimes. They may already be installed."
+    echo "Continuing with build..."
+fi
 
 # Build the flatpak
 echo "Building flatpak package..."

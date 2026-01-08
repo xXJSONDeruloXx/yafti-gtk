@@ -13,25 +13,60 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Vte', '2.91')
 from gi.repository import Gtk, Vte, GLib
 
+# Constants
+APP_ID = 'com.github.yafti.gtk'
+APP_TITLE = 'Bazzite Portal'
+DEFAULT_WINDOW_WIDTH = 800
+DEFAULT_WINDOW_HEIGHT = 600
+DIALOG_WIDTH = 700
+DIALOG_HEIGHT = 400
+SCROLLBACK_LINES = 10000
+TERMINAL_CHECK_TIMEOUT = 2
+FLATPAK_SPAWN = '/usr/bin/flatpak-spawn'
+
+
+def set_widget_margins(widget, top=10, bottom=10, start=10, end=10):
+    """Apply consistent margins to a widget."""
+    widget.set_margin_top(top)
+    widget.set_margin_bottom(bottom)
+    widget.set_margin_start(start)
+    widget.set_margin_end(end)
+
+
+def clear_container(container):
+    """Remove all children from a container widget."""
+    for child in container.get_children():
+        container.remove(child)
+
+
+def show_error_dialog(parent, title, message):
+    """Display an error dialog with the given title and message."""
+    dialog = Gtk.MessageDialog(
+        transient_for=parent,
+        flags=0,
+        message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.OK,
+        text=title
+    )
+    dialog.format_secondary_text(message)
+    dialog.run()
+    dialog.destroy()
+
 
 def setup_theme():
     """Apply dark theme at startup."""
-    # Ensure app-id matches desktop file so icon/theme resolve correctly on Wayland
-    GLib.set_prgname('com.github.yafti.gtk')
+    GLib.set_prgname(APP_ID)
 
     # Set dark theme
     os.environ['GTK_THEME'] = 'Adwaita:dark'
     
-    # Initialize GTK
     Gtk.init([])
 
-    # Set app icon - icon theme should resolve this properly in flatpak
     try:
-        Gtk.Window.set_default_icon_name('com.github.yafti.gtk')
+        Gtk.Window.set_default_icon_name(APP_ID)
     except Exception as e:
         print(f"Warning: Could not set app icon: {e}")
     
-    # Enable dark theme preference
     settings = Gtk.Settings.get_default()
     if settings:
         settings.set_property('gtk-application-prefer-dark-theme', True)
@@ -39,8 +74,8 @@ def setup_theme():
 
 class YaftiGTK(Gtk.Window):
     def __init__(self, config_file='yafti.yml'):
-        super().__init__(title="Bazzite Portal")
-        self.set_default_size(800, 600)
+        super().__init__(title=APP_TITLE)
+        self.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.set_border_width(10)
         
         # Load YAML configuration
@@ -55,12 +90,8 @@ class YaftiGTK(Gtk.Window):
         # Search bar at the top
         search_entry = Gtk.SearchEntry()
         search_entry.set_placeholder_text("Search Apps and Actions")
-        search_entry.set_margin_top(4)
-        search_entry.set_margin_bottom(4)
-        search_entry.set_margin_start(4)
-        search_entry.set_margin_end(4)
+        set_widget_margins(search_entry, 4, 4, 4, 4)
         search_entry.connect("search-changed", self.on_search_changed)
-        search_entry.connect("changed", self.on_search_changed)
         self.search_entry = search_entry
         vbox.pack_start(search_entry, False, False, 0)
 
@@ -86,10 +117,7 @@ class YaftiGTK(Gtk.Window):
         search_scrolled = Gtk.ScrolledWindow()
         search_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        results_box.set_margin_top(10)
-        results_box.set_margin_bottom(10)
-        results_box.set_margin_start(10)
-        results_box.set_margin_end(10)
+        set_widget_margins(results_box, 10, 10, 10, 10)
         self.search_results_box = results_box
         search_scrolled.add(results_box)
         self.content_stack.add_named(search_scrolled, "search")
@@ -105,30 +133,14 @@ class YaftiGTK(Gtk.Window):
             with open(config_file, 'r') as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.ERROR,
-                buttons=Gtk.ButtonsType.OK,
-                text="Configuration file not found"
-            )
-            dialog.format_secondary_text(
+            show_error_dialog(
+                self,
+                "Configuration file not found",
                 f"Could not find {config_file} in the current directory."
             )
-            dialog.run()
-            dialog.destroy()
             sys.exit(1)
         except yaml.YAMLError as e:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.ERROR,
-                buttons=Gtk.ButtonsType.OK,
-                text="YAML parsing error"
-            )
-            dialog.format_secondary_text(str(e))
-            dialog.run()
-            dialog.destroy()
+            show_error_dialog(self, "YAML parsing error", str(e))
             sys.exit(1)
     
     def create_screen_page(self, screen):
@@ -139,10 +151,7 @@ class YaftiGTK(Gtk.Window):
         
         # Create main box for the page
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        page_box.set_margin_top(10)
-        page_box.set_margin_bottom(10)
-        page_box.set_margin_start(10)
-        page_box.set_margin_end(10)
+        set_widget_margins(page_box, 10, 10, 10, 10)
         
         # Create action items
         for action in screen.get('actions', []):
@@ -160,10 +169,7 @@ class YaftiGTK(Gtk.Window):
         
         # Create box for button content
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        button_box.set_margin_top(5)
-        button_box.set_margin_bottom(5)
-        button_box.set_margin_start(5)
-        button_box.set_margin_end(5)
+        set_widget_margins(button_box, 5, 5, 5, 5)
         
         # Add icon (play button)
         icon = Gtk.Image.new_from_icon_name("media-playback-start", Gtk.IconSize.BUTTON)
@@ -209,22 +215,11 @@ class YaftiGTK(Gtk.Window):
                 index.append({'screen_title': screen.get('title', ''), 'action': action})
         return index
 
-    def create_action_result(self, action, screen_title):
-        """Render a search result as a labeled action card."""
-        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        wrapper.pack_start(self.create_action_item(action), False, False, 0)
-        return wrapper
-
-    def _clear_search_results(self):
-        for child in self.search_results_box.get_children():
-            self.search_results_box.remove(child)
-        if hasattr(self, 'content_stack'):
-            self.content_stack.set_visible_child_name("tabs")
-
     def on_search_changed(self, entry):
         query = entry.get_text().strip()
         if not query:
-            self._clear_search_results()
+            clear_container(self.search_results_box)
+            self.content_stack.set_visible_child_name("tabs")
             return
 
         lowered = query.lower()
@@ -237,8 +232,7 @@ class YaftiGTK(Gtk.Window):
                 matches.append(item)
 
         # Clear old results
-        for child in self.search_results_box.get_children():
-            self.search_results_box.remove(child)
+        clear_container(self.search_results_box)
         
         header = Gtk.Label()
         header.set_markup("<b>Search results</b>")
@@ -247,16 +241,16 @@ class YaftiGTK(Gtk.Window):
 
         if matches:
             for item in matches:
-                result = self.create_action_result(item['action'], item['screen_title'])
-                self.search_results_box.pack_start(result, False, False, 0)
+                self.search_results_box.pack_start(
+                    self.create_action_item(item['action']), False, False, 0
+                )
         else:
             empty = Gtk.Label(label="No matches found")
             empty.set_xalign(0)
             self.search_results_box.pack_start(empty, False, False, 0)
 
         self.search_results_box.show_all()
-        if hasattr(self, 'content_stack'):
-            self.content_stack.set_visible_child_name("search")
+        self.content_stack.set_visible_child_name("search")
     
     def on_action_clicked(self, button, title, script):
         """Handle action button click - run script in terminal window"""
@@ -273,12 +267,12 @@ class YaftiGTK(Gtk.Window):
             transient_for=self,
             flags=0
         )
-        dialog.set_default_size(700, 400)
+        dialog.set_default_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         
         # Create terminal widget
         terminal = Vte.Terminal()
         terminal.set_scroll_on_output(True)
-        terminal.set_scrollback_lines(10000)
+        terminal.set_scrollback_lines(SCROLLBACK_LINES)
         
         # Create scrolled window for terminal
         scrolled = Gtk.ScrolledWindow()
@@ -288,7 +282,7 @@ class YaftiGTK(Gtk.Window):
         dialog.vbox.pack_start(scrolled, True, True, 0)
         
         # Add close button
-        close_button = dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
         
         # Show dialog
         dialog.show_all()
@@ -296,7 +290,7 @@ class YaftiGTK(Gtk.Window):
         # Spawn the script in the terminal using flatpak-spawn to execute on the host
         # so ujust and other host tools are available
         try:
-            cmd = ['/usr/bin/flatpak-spawn', '--host', '/bin/bash', '-c', script]
+            cmd = [FLATPAK_SPAWN, '--host', '/bin/bash', '-c', script]
 
             terminal.spawn_async(
                 Vte.PtyFlags.DEFAULT,
@@ -312,16 +306,7 @@ class YaftiGTK(Gtk.Window):
                 (dialog, title)
             )
         except Exception as e:
-            error_dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.ERROR,
-                buttons=Gtk.ButtonsType.OK,
-                text="Error running script"
-            )
-            error_dialog.format_secondary_text(str(e))
-            error_dialog.run()
-            error_dialog.destroy()
+            show_error_dialog(self, "Error running script", str(e))
             dialog.destroy()
         
         # Handle dialog response
@@ -340,16 +325,16 @@ class YaftiGTK(Gtk.Window):
             try:
                 # First check if terminal exists on host
                 check = subprocess.run(
-                    ["/usr/bin/flatpak-spawn", "--host", "which", terminal],
+                    [FLATPAK_SPAWN, "--host", "which", terminal],
                     capture_output=True,
-                    timeout=2
+                    timeout=TERMINAL_CHECK_TIMEOUT
                 )
                 if check.returncode != 0:
                     continue  # Terminal not found, try next
                     
                 # Terminal exists, launch it
                 cmd = [
-                    "/usr/bin/flatpak-spawn",
+                    FLATPAK_SPAWN,
                     "--host",
                     terminal,
                     "--",
@@ -370,18 +355,12 @@ class YaftiGTK(Gtk.Window):
     
     def on_terminal_spawn_callback(self, terminal, pid, error, user_data, *args):
         """Callback after terminal spawn"""
-        dialog = None
-        title = "Action"
-        if isinstance(user_data, (tuple, list)) and len(user_data) == 2:
-            dialog, title = user_data
-        else:
-            dialog = user_data if isinstance(user_data, Gtk.Dialog) else None
+        dialog, title = user_data
 
         if error:
             print(f"Error spawning terminal for {title}: {error}")
             return
-        if dialog:
-            terminal.connect("child-exited", self.on_terminal_child_exited, dialog, title)
+        terminal.connect("child-exited", self.on_terminal_child_exited, dialog, title)
     
     def on_terminal_child_exited(self, terminal, status, dialog, title):
         """Handle terminal process exit"""
@@ -390,26 +369,18 @@ class YaftiGTK(Gtk.Window):
 
 
 def main():
-    import argparse
+    # Check command-line arguments
+    if len(sys.argv) != 2:
+        print(f"Usage: {APP_ID} CONFIG_FILE")
+        print(f"Example: flatpak run {APP_ID} /run/host/usr/share/yafti/yafti.yml")
+        sys.exit(1)
     
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(
-        prog='com.github.yafti.gtk',
-        description='Bazzite Portal - GTK interface for yafti',
-        epilog='Example: flatpak run com.github.yafti.gtk /run/host/usr/share/yafti/yafti.yml'
-    )
-    parser.add_argument(
-        'config',
-        metavar='CONFIG_FILE',
-        help='Path to yafti.yml configuration file'
-    )
-    args = parser.parse_args()
+    config_file = sys.argv[1]
     
     # Apply theme before creating window
     setup_theme()
 
-    # Use provided config file
-    config_file = args.config
+    # Validate config file exists
     if not os.path.exists(config_file):
         print(f"Error: yafti config not found at {config_file}")
         sys.exit(1)
