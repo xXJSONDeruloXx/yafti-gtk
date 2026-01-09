@@ -1,6 +1,8 @@
 [Desktop Entry]
 Name=Bazzite Portal
+Name[fr]=Portail de Bazzite
 Comment=Run Bazzite setup scripts
+Comment[fr]=Exécutez les scripts d'installation de Bazzite
 Exec=yafti_gtk.py /run/host/usr/share/yafti/yafti.yml
 Icon=com.github.yafti.gtk
 Terminal=false
