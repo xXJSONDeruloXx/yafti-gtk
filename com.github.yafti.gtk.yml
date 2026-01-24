@@ -1,5 +1,4 @@
 app-id: com.github.yafti.gtk
-app-version: "0.1.2"
 runtime: org.gnome.Platform
 runtime-version: '48'
 sdk: org.gnome.Sdk
@@ -42,6 +41,7 @@ modules:
       - install -D yafti_gtk.py ${FLATPAK_DEST}/bin/yafti_gtk.py
       - install -D com.github.yafti.gtk.desktop ${FLATPAK_DEST}/share/applications/com.github.yafti.gtk.desktop
       - install -D portal.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.github.yafti.gtk.svg
+      - install -D com.github.yafti.gtk.metainfo.xml ${FLATPAK_DEST}/share/metainfo/com.github.yafti.gtk.metainfo.xml
       - |
         mkdir -p ${FLATPAK_DEST}/lib/girepository-1.0 || true
         if [ -d ${FLATPAK_DEST}/lib64/girepository-1.0 ]; then
@@ -54,3 +54,5 @@ modules:
         path: com.github.yafti.gtk.desktop
       - type: file
         path: portal.svg
+      - type: file
+        path: com.github.yafti.gtk.metainfo.xml
