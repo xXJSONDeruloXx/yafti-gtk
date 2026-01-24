@@ -2,10 +2,7 @@
 <component type="desktop">
   <id>com.github.yafti.gtk</id>
   <name>Bazzite Portal</name>
-  <summary>Run Bazzite setup scripts</summary>
-  <description>
-    <p>Yafti GTK — helper GUI to run Bazzite setup scripts and utilities.</p>
-  </description>
+  <summary>Helps you setup Bazzite</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
   <url type="homepage">https://github.com/xXJSONDeruloXx/yafti-gtk</url>
